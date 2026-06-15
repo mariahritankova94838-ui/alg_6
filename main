@@ -1,0 +1,201 @@
+import sys  
+import random  
+import heapq  
+import pygame  
+
+
+GRID_SIZE = 10  # Задаем рахмер игрового поля 
+CELL_SIZE = 60  # Устанавливаем размер одной ячейки в пикселях 
+WINDOW_SIZE = GRID_SIZE * CELL_SIZE  # Вычисляем общий размер окна 
+
+
+EMPTY = "EMPTY"  
+OBSTACLE = "OBSTACLE" 
+START = "START"  
+END = "END"  
+PATH = "PATH"  
+VISITED = "VISITED"  
+
+
+COLOR_WHITE = (255, 255, 255)  # Белый цвет для обычных пустых клеток
+COLOR_BLACK = (0, 0, 0)  # Черный цвет для стен и фона сетки
+COLOR_ORANGE = (255, 165, 0)  # Оранжевый (Начало)
+COLOR_TURQUOISE = (64, 224, 208)  # Бирюзовый цвет (Конец)
+COLOR_GREEN = (0, 255, 0)  # Зеленый цвет для ячеек в очереди (В очереди)
+COLOR_RED = (255, 0, 0)  # Красный цвет для посещенных алгоритмом ячеек (Посещена)
+COLOR_PURPLE = (128, 0, 128)  # Фиолетовый цвет для отображения найденного пути (Путь)
+
+
+class Cell:
+
+    def __init__(self, x, y):
+        self.x = x  
+        self.y = y  
+        self.type = EMPTY  
+        self.f = 0  
+        self.g = float('inf')  
+        self.h = 0  
+        self.weight = 1  
+        self.parent = None  
+        
+    
+    def __lt__(self, other):
+        return self.f < other.f  # Ячейка считается "меньше", если её значение f меньше, чем у другой
+
+
+def heuristic(a, b):
+    
+    return abs(a.x - b.x) + abs(a.y - b.y)  # Считаем сумму модулей разностей координат X и Y
+
+
+def is_valid(x, y):
+
+    return 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE  # Возвращает True, если координаты лежат в пределах сетки [0, 9]
+
+
+def reconstruct_path(current, grid):
+
+    while current.parent is not None:  
+        current = current.parent  # Переходим к родительской ячейке
+        if grid[current.x][current.y].type != START:  # Если эта ячейка не является стартовой
+            grid[current.x][current.y].type = PATH  # Перекрашиваем её статус в элемент финального пути
+
+
+def a_star_algorithm(grid, start, end):
+
+    global global_in_open_set  # Позволяет графическому циклу видеть, какие ячейки сейчас находятся в очереди
+    # Сброс старых результатов поиска перед новым запуском
+    for row in grid:  # Перебираем все строки нашей сетки
+        for cell in row:  # Перебираем каждую ячейку в строке
+            cell.parent = None  # Зануляем ссылку на прошлых родителей
+            cell.g = float('inf')  # Возвращаем стоимость пути g к бесконечности
+            cell.f = 0  # Сбрасываем общую оценку f на ноль
+            if cell.type in (PATH, VISITED):  # Если ячейка осталась синей или бирюзовой с прошлого раза
+                cell.type = EMPTY  # Очищаем её статус обратно до пустой
+
+    open_set = []  # Создаем пустой список, который будет использоваться как бинарная куча
+    start.g = 0  # Для старта стоимость пути от самого себя равна нулю
+    start.h = heuristic(start, end)  # Считаем эвристику от старта до конечной точки
+    start.f = start.g + start.h  # Считаем полную стоимость f для стартовой вершины
+
+    heapq.heappush(open_set, (start.f, start)) 
+
+    in_open_set = {start}  # проверяем, кто сейчас в куче
+    global_in_open_set = in_open_set  # Синхронизируем глобальную переменную со множеством открытых ячеек
+    closed_set = set()  # уже проверенные вершины
+
+    dx = [1, -1, 0, 0]  # Смещения по строкам (вниз, вверх)
+    dy = [0, 0, 1, -1]  # Смещения по столбцам (вправо, влево)
+
+    while open_set:  # Запускаем цикл поиска, пока в куче есть элементы
+        _, current = heapq.heappop(open_set)  # Извлекаем из кучи ячейку с наименьшим значением f
+        if current in in_open_set:  # Если ячейка числилась в нашем множестве открытых вершин
+            in_open_set.remove(current)  # Удаляем её оттуда
+
+        if current.x == end.x and current.y == end.y:  # Проверяем: если текущая ячейка и есть финиш
+            reconstruct_path(end, grid)  # Вызываем функцию восстановления и прорисовки пути
+            global_in_open_set = set()  # Очищаем отображение очереди после успешного нахождения пути
+            return True  # путь успешно найден
+
+        closed_set.add(current)  # Добавляем текущую обработанную ячейку в список
+        if grid[current.x][current.y].type != START and grid[current.x][current.y].type != END:  # Если клетка не старт и не финиш
+            grid[current.x][current.y].type = VISITED  # Помечаем её цвет как посещенный (бирюзовый)
+
+        for i in range(4):  
+            nx = current.x + dx[i]  
+            ny = current.y + dy[i] 
+
+            if is_valid(nx, ny):  # Если полученные координаты не выходят за рамки экрана
+                neighbor = grid[nx][ny]  # Получаем сам объект ячейки-соседа
+
+                if neighbor in closed_set or neighbor.type == OBSTACLE:  # Если сосед уже в списке или это стена
+                    continue  # Игнорируем его и переходим к следующему направлению
+
+                temp_g = current.g + neighbor.weight  # Рассчитываем стоимость дойти до соседа через текущую клетку
+
+                if temp_g < neighbor.g:  # Если этот новый путь оказался короче, чем сохраненный ранее
+                    neighbor.parent = current  # Делаем текущую вершину родителем этого соседа
+                    neighbor.g = temp_g  # Обновляем у соседа значение стоимости пути g
+                    neighbor.h = heuristic(neighbor, end)  # Пересчитываем эвристику до финиша
+                    neighbor.f = neighbor.g + neighbor.h  # Пересчитываем полную стоимость f
+
+                    if neighbor not in in_open_set:  # Если этого соседа еще нет в очереди на проверку
+                        heapq.heappush(open_set, (neighbor.f, neighbor))  # Добавляем соседа в кучу
+                        in_open_set.add(neighbor)  # Добавляем его в наше хэш-множество открытых ячеек
+
+    global_in_open_set = set()  # Очищаем отображение очереди, если путь так и не был найден
+    return False  # Если цикл завершился, а финиша не достигли, возвращаем False (пути нет)
+
+
+def load_map(grid):
+
+    grid.clear()  # Полностью очищаем главный массив сетки от старых данных
+    for i in range(GRID_SIZE):  # Цикл по строкам игрового поля
+        row = [Cell(i, j) for j in range(GRID_SIZE)]  # Создаем строку, заполненную новыми объектами Cell
+        grid.append(row)  # Добавляем готовую строку в двумерную матрицу поля
+
+    
+    obstacles = [
+        (0, 2), (0, 6), (0, 8),
+        (1, 8),
+        (2, 1), (2, 2), (2, 9),
+        (3, 2),
+        (4, 1), (4, 2), (4, 4), (4, 5),
+        (5, 2), (5, 3), (5, 5), (5, 7),
+        (6, 0), (6, 3), (6, 5), (6, 6),
+        (7, 0), (7, 6),
+        (8, 8),
+        (9, 0)
+    ]
+
+    for x, y in obstacles:  # Проходимся по всем координатам стен из списка
+        grid[x][y].type = OBSTACLE  # Меняем тип указанных ячеек на блокирующее препятствие
+
+    start = grid[4][0]  # Назначаем точку старта на координаты строка 4, столбец 0 (Позиция Короля)
+    start.type = START  # Переключаем её состояние на START
+
+    end = grid[9][9]  # Выбираем ячейку с координатами (9, 9) в качестве финиша (Крестик)
+    end.type = END 
+
+    return start, end  # Возвращаем кортеж с ссылками на объекты старта и финиша
+
+
+def generate_random_map(grid, weighted):
+
+    grid.clear()  # Очищаем старую сетку перед генерацией случайного ландшафта
+    for i in range(GRID_SIZE):  # Пробегаем циклом по строкам будущей карты
+        row = []  # Инициализируем пустой список под текущую строку
+        for j in range(GRID_SIZE):  # Пробегаем циклом по столбцам внутри строки
+            cell = Cell(i, j)  # Создаем новый чистый объект ячейки
+            if random.randint(1, 100) < 25:  # Генерируем число от 1 до 100. Если оно меньше 25 (шанс 25%)
+                cell.type = OBSTACLE  # Делаем эту ячейку непроходимой стеной
+            elif weighted:  # В противном случае, если включен режим взвеченного графа
+                cell.weight = random.randint(1, 5)  # Присваиваем клетке случайную стоимость прохода от 1 до 5
+            row.append(cell)  # Добавляем созданную ячейку в текущую строку
+        grid.append(row)  # Добавляем готовую сформированную строку в общую матрицу поля
+
+    start = grid[4][0]  
+    start.type = START 
+    start.weight = 1  # Сбрасываем её вес до единицы, чтобы старт всегда был бесплатным
+
+    end = grid[GRID_SIZE - 1][GRID_SIZE - 1]  # Назначаем правый нижний угол (9, 9) финишем
+    end.type = END  # Переключаем тип ячейки на END
+    end.weight = 1  # Сбрасываем её вес до единицы для корректного захода алгоритма
+
+    return start, end  # Возвращаем кортеж с обновленными объектами старта и финиша
+
+
+# Глобальная переменная для отслеживания открытого списка во время графической прорисовки кадра
+global_in_open_set = set()
+
+
+def main():
+    pygame.init()  
+    window = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))  # Создаем графическое окно заданного размера
+    pygame.display.set_caption("Algorithm A* Visualization - Var 26")  # Устанавливаем заголовок для созданного окна
+
+    grid = []  # Инициализируем пустой список для хранения будущей матрицы игрового поля
+    start, end = load_map(grid)  # Загружаем карту Варианта №26 и получаем ссылки на старт/финиш
+
+    running = True  # Флаг-переключатель, который управляет работой главного цикла
+    while running:  # Основной игровой цикл приложения, работающий пока running равен True
